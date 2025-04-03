@@ -7,16 +7,10 @@ Description: |-
     - VPC
     - Private and Public subnets
     - NAT Gateway
-    - Active Directory
     - S3 Gateway
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-      - Label:
-          default: Active Directory
-        Parameters:
-          - DomainName
-          - TopLevelDomain
       - Label:
           default: Networking
         Parameters:
@@ -25,24 +19,8 @@ Metadata:
           - PublicSubnet2CidrBlock
           - PrivateSubnet1CidrBlock
           - PrivateSubnet2CidrBlock
-    ParameterLabels:
-      DomainName:
-        default: Domain Name
-      TopLevelDomain:
-        default: Top level domain
+
 Parameters:
-  DomainName:
-    Description: Domain name not including the top level domain
-    Default: hpclab
-    Type: String
-    AllowedPattern: '[a-zA-Z0-9]+'
-  TopLevelDomain:
-    Description: TLD for your domain (i.e. local, com, etc)
-    Type: String
-    MinLength: '1'
-    MaxLength: '15'
-    Default: local
-    AllowedPattern: '[a-zA-Z0-9]+'
   VPCCidrBlock:
     Description: CIDR block for the VPC
     Type: String
@@ -371,125 +349,6 @@ Resources:
               - !Sub arn:${AWS::Partition}:s3:::al2023-repos-${AWS::Region}-de612dc2/*
               - !Sub arn:${AWS::Partition}:s3:::fsx-lustre-client-repo/*
 
-  ADAdministratorSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Description: !Sub AD Secrets for Open On Demand Stack ${AWS::StackName}
-      GenerateSecretString:
-        PasswordLength: 12
-        ExcludeCharacters: '"@/\''$`,;!%<>#&'
-
-  ActiveDirectory:
-    Type: AWS::DirectoryService::MicrosoftAD
-    Properties:
-      Edition: Standard
-      Name: !Sub ${DomainName}.${TopLevelDomain}
-      Password: !Sub '{{resolve:secretsmanager:${ADAdministratorSecret}:SecretString}}'
-      VpcSettings:
-        SubnetIds:
-          - !Ref PrivateSubnet1
-          - !Ref PrivateSubnet2
-        VpcId: !Ref VPC
-
-  LoadBalancerLogBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - BucketKeyEnabled: true
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      VersioningConfiguration:
-        Status: Enabled
-
-  LoadBalancerLogBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref LoadBalancerLogBucket
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Sid: "AWSLogDeliveryWriteNLB"
-            Effect: Allow
-            Principal:
-              Service: 'delivery.logs.amazonaws.com'
-            Action: "s3:PutObject"
-            Resource: !Sub arn:${AWS::Partition}:s3:::${LoadBalancerLogBucket}/*
-            Condition:
-              StringEquals:
-                's3:x-amz-acl': 'bucket-owner-full-control'
-          - Sid: "AWSLogDeliveryAclCheck"
-            Effect: Allow
-            Principal:
-              Service: 'delivery.logs.amazonaws.com'
-            Action: "s3:GetBucketAcl"
-            Resource: !Sub arn:${AWS::Partition}:s3:::${LoadBalancerLogBucket}
-          - Sid: "AWSLogDeliveryWriteALB"
-            Effect: Allow
-            Principal:
-              AWS: !Sub
-                - arn:aws:iam::${LogAccount}:root
-                - LogAccount: !FindInMap [RegionMap, !Ref 'AWS::Region', ALBLogAccount]
-            Action: "s3:PutObject"
-            Resource: !Sub arn:${AWS::Partition}:s3:::${LoadBalancerLogBucket}/*
-            Condition:
-              StringEquals:
-                's3:x-amz-acl': 'bucket-owner-full-control'
-          - Sid: ForceSSLRequests
-            Action:
-              - 's3:*'
-            Effect: Deny
-            Resource:
-              - !Sub arn:${AWS::Partition}:s3:::${LoadBalancerLogBucket}
-              - !Sub arn:${AWS::Partition}:s3:::${LoadBalancerLogBucket}/*
-            Principal: '*'
-            Condition:
-              Bool:
-                'aws:SecureTransport': "false"
-
-  NLB:
-    DependsOn: LoadBalancerLogBucketPolicy
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      IpAddressType: ipv4
-      LoadBalancerAttributes:
-        - Key: access_logs.s3.enabled
-          Value: true
-        - Key: access_logs.s3.bucket
-          Value: !Ref LoadBalancerLogBucket
-        - Key: access_logs.s3.prefix
-          Value: ldap-nlb
-      Scheme: internal
-      Subnets:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-      Type: network
-
-  LDAPlistener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref ADTargetGroup
-      LoadBalancerArn: !Ref NLB
-      Port: 389
-      Protocol: "TCP"
-
-  ADTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      HealthCheckEnabled: true
-      TargetType: ip
-      Protocol: TCP
-      Port: 389
-      VpcId: !Ref VPC
-      Targets:
-        - Id: !Select [0, !GetAtt ActiveDirectory.DnsIpAddresses]
-        - Id: !Select [1, !GetAtt ActiveDirectory.DnsIpAddresses]
-
 Outputs:
   VPCId:
     Description: VPC ID
@@ -504,17 +363,5 @@ Outputs:
     Description: Top Level Domain for AD
     Value: !Ref TopLevelDomain
   DomainName:
-    Description: DomainName for AD
+    Description: DomainName
     Value: !Ref DomainName
-  DirectoryId:
-    Description: Directory ID
-    Value: !Ref ActiveDirectory
-  ADAdministratorSecretARN:
-    Description: AD Admin Secret ARN
-    Value: !Ref ADAdministratorSecret
-  LDAPNLBEndPoint:
-    Description: LDAP NLB End Point
-    Value: !Sub ${NLB.DNSName}
-  LoadBalancerLogBucket:
-    Description: Load Balancer Log Bucket
-    Value: !Ref LoadBalancerLogBucket
