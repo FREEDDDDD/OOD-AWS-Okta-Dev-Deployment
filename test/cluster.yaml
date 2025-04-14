@@ -12,11 +12,6 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: PCS VPC Configuration Single Zone
-        Parameters:
-          - AvailabilityZone
-          - VpcCIDR
-      - Label:
           default: PCS Cluster configuration
         Parameters:
           - SlurmVersion
@@ -26,27 +21,20 @@ Metadata:
           - NodeArchitecture
           - KeyName
           - ClientIpCidr
+      - Label:
+          default: HPC Recipes configuration
+        Parameters:
+          - HpcRecipesS3Bucket
+          - HpcRecipesBranch
 
 Parameters:
 
-  AvailabilityZone:
-    Description: "The Availability Zone where the resources will be deployed (e.g., us-east-1a, us-east-1b)."
-    Type: String
-    Default: us-east-1a
-    AllowedValues:
-      - us-east-1a
-      - us-east-1b
-      - us-east-1c
-      - us-east-1d
-      - us-east-1e
-      - us-east-1f
-    ConstraintDescription: "Must be a valid Availability Zone in the selected region."
-    
   NodeArchitecture:
     Type: String
     Default: x86
     AllowedValues:
       - x86
+      - Graviton
     Description: Processor architecture for the login and compute node instances
 
   SlurmVersion:
@@ -69,14 +57,30 @@ Parameters:
     AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
     ConstraintDescription: Value must be a valid IP or network range of the form x.x.x.x/x. 
 
+  HpcRecipesS3Bucket:
+    Type: String
+    Default: aws-hpc-recipes
+    Description: HPC Recipes for AWS S3 bucket
+    AllowedValues:
+         - aws-hpc-recipes
+         - aws-hpc-recipes-dev
+  HpcRecipesBranch:
+    Type: String
+    Default: main
+    Description: HPC Recipes for AWS release branch
+    AllowedPattern: '^(?!.*/\.git$)(?!.*/\.)(?!.*\\.\.)[a-zA-Z0-9-_\.]+$'
+
 Mappings:
 
   Architecture:
     AmiArchParameter:
+      Graviton: arm64
       x86: x86_64
     LoginNodeInstances:
+      Graviton: c7g.xlarge
       x86: t2.medium
     ComputeNodeInstances:
+      Graviton: c7g.xlarge
       x86: t2.small
 
 Resources:
@@ -85,8 +89,8 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       Parameters:
-        AvailabilityZone: us-east-1a
-      TemplateURL: !Sub 'https://slurm-cluster-configuration.s3.us-east-2.amazonaws.com/public-private.yaml'
+        ProvisionSubnetsC: "False"
+      TemplateURL: !Sub 'https://${HpcRecipesS3Bucket}.s3.amazonaws.com/${HpcRecipesBranch}/recipes/net/hpc_large_scale/assets/main.yaml'
 
   EfsStorage:
     Type: AWS::CloudFormation::Stack
