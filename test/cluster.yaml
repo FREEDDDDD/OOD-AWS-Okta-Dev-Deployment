@@ -177,6 +177,11 @@ Resources:
       Scheduler:
         Type: SLURM
         Version: !Ref SlurmVersion
+        Accounting:
+          DatabaseHost: !GetAtt [ SlurmDB, Outputs.DatabaseHost ]
+          DatabasePort: !GetAtt [ SlurmDB, Outputs.DatabasePort]
+          DatabaseAdminUser: !GetAtt [ SlurmDB, Outputs.DatabaseAdminUser ]
+          DatabaseSecretArn: !GetAtt [ SlurmDB, Outputs.DatabaseSecretArn ]
       Networking:
         SubnetIds:
           - !GetAtt [ Networking, Outputs.DefaultPrivateSubnet ]
