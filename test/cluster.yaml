@@ -26,6 +26,19 @@ Metadata:
         Parameters:
           - HpcRecipesS3Bucket
           - HpcRecipesBranch
+      
+      - Label:
+          default: "Database Cluster Configuration"
+        Parameters:
+          - ClusterName
+          - ClusterAdmin
+          - AdminPasswordSecretString
+          - MinCapacity
+          - MaxCapacity
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - NetworkStackNameParameter
 
 Parameters:
 
@@ -64,11 +77,39 @@ Parameters:
     AllowedValues:
          - aws-hpc-recipes
          - aws-hpc-recipes-dev
+
   HpcRecipesBranch:
     Type: String
     Default: main
     Description: HPC Recipes for AWS release branch
     AllowedPattern: '^(?!.*/\.git$)(?!.*/\.)(?!.*\\.\.)[a-zA-Z0-9-_\.]+$'
+
+  AdminPasswordSecretString:
+    Description: >-
+      Password must be at least 8 characters long and contain at least 1 upper case, 1 lower case, 1 digit, and 1
+      non-alphanumeric character. It must not contain any of the following: # (hash), / (slash), ' (single quote), " (double quote)
+      or @ (at sign).
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    # Only allow 'Medium' or better strength passwords according to https://dev.mysql.com/doc/refman/8.0/en/validate-password.html
+    AllowedPattern: (?=^.{8,}$)(?=.*\d)(?=.*[A-Z])(?=.*[a-z])(?=.*[^\w\s])(?!.*[@/'"#])^.*
+    ConstraintDescription: >-
+      Password must be at least 8 characters with at least one uppercase letter, one lower case letter, one numeric
+      digit, and one special (non-alphanumeric) character. It can not contain any of the following: # (hash), / (slash), ' (single quote), " (double quote) and @ (at sign).
+  
+  ClusterAdmin:
+    Description: Administrator user name.
+    Type: String
+    Default: clusteradmin
+    MinLength: 3
+    MaxLength: 64
+  
+  NetworkStackNameParameter:
+    Description: Name of the HPC large-scale networking stack. Requires stackname-PrivateSubnets export.
+    Type: String
+    Default: hpc-networking
+  
 
 Mappings:
 
@@ -91,6 +132,15 @@ Resources:
       Parameters:
         ProvisionSubnetsC: "False"
       TemplateURL: !Sub 'https://${HpcRecipesS3Bucket}.s3.amazonaws.com/${HpcRecipesBranch}/recipes/net/hpc_large_scale/assets/main.yaml'
+
+  SlurmDB:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ClusterAdmin: !Ref ClusterAdmin
+        AdminPasswordSecretString: !Ref AdminPasswordSecretString
+        NetworkStackNameParameter: !Ref Networking
+      TemplateURL: !Sub 'https://slurm-cluster-configuration.s3.us-east-2.amazonaws.com/slurmdb.yaml'
 
   EfsStorage:
     Type: AWS::CloudFormation::Stack
@@ -151,12 +201,9 @@ Resources:
         ClusterSecurityGroupId: !GetAtt [ PCSSecurityGroup, Outputs.ClusterSecurityGroupId ]
         SshSecurityGroupId: !GetAtt [ PCSSecurityGroup, Outputs.InboundSshSecurityGroupId ]
         EfsFilesystemSecurityGroupId: !GetAtt [ EfsStorage, Outputs.SecurityGroupId ]
-        # FSxLustreFilesystemSecurityGroupId: !GetAtt [ FSxLStorage, Outputs.FSxLustreSecurityGroupId ]
         SshKeyName: !Ref KeyName
         EfsFilesystemId: !GetAtt [ EfsStorage, Outputs.EFSFilesystemId ]
-        # FSxLustreFilesystemId: !GetAtt [ FSxLStorage, Outputs.FSxLustreFilesystemId ]
-        # FSxLustreFilesystemMountName: !GetAtt [ FSxLStorage, Outputs.FSxLustreMountName ]
-      TemplateURL: !Sub 'https://${HpcRecipesS3Bucket}.s3.amazonaws.com/${HpcRecipesBranch}/recipes/pcs/getting_started/assets/cfn-pcs-lt-efs-fsxl.yaml'
+      TemplateURL: !Sub 'https://slurm-cluster-configuration.s3.us-east-2.amazonaws.com/cfn-pcs-lt-efs-fsxl.yaml'
 
   # Compute Node groups - Login Nodes
   PCSNodeGroupLogin:
@@ -351,3 +398,8 @@ Outputs:
         }
     Export:
       Name: !Sub ${AWS::StackName}-Ec2ConsoleUrl
+
+  StackName:
+    Value: !Ref "AWS::StackName"
+    Export:
+      Name: !Sub "${AWS::StackName}-Name"
