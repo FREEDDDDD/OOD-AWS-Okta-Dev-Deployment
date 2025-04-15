@@ -30,15 +30,9 @@ Metadata:
       - Label:
           default: "Database Cluster Configuration"
         Parameters:
-          - ClusterName
           - ClusterAdmin
           - AdminPasswordSecretString
-          - MinCapacity
-          - MaxCapacity
-      - Label:
-          default: "Network Configuration"
-        Parameters:
-          - NetworkStackNameParameter
+
 
 Parameters:
 
@@ -85,6 +79,7 @@ Parameters:
     AllowedPattern: '^(?!.*/\.git$)(?!.*/\.)(?!.*\\.\.)[a-zA-Z0-9-_\.]+$'
 
   AdminPasswordSecretString:
+    Default: Abc1234567890!
     Description: >-
       Password must be at least 8 characters long and contain at least 1 upper case, 1 lower case, 1 digit, and 1
       non-alphanumeric character. It must not contain any of the following: # (hash), / (slash), ' (single quote), " (double quote)
@@ -104,11 +99,7 @@ Parameters:
     Default: clusteradmin
     MinLength: 3
     MaxLength: 64
-  
-  NetworkStackNameParameter:
-    Description: Name of the HPC large-scale networking stack. Requires stackname-PrivateSubnets export.
-    Type: String
-    Default: hpc-networking
+
   
 
 Mappings:
@@ -131,7 +122,7 @@ Resources:
     Properties:
       Parameters:
         ProvisionSubnetsC: "False"
-      TemplateURL: !Sub 'https://${HpcRecipesS3Bucket}.s3.amazonaws.com/${HpcRecipesBranch}/recipes/net/hpc_large_scale/assets/main.yaml'
+      TemplateURL: !Sub 'https://slurm-cluster-configuration.s3.us-east-2.amazonaws.com/hpc_large_scale_net.yaml'
 
   SlurmDB:
     Type: AWS::CloudFormation::Stack
@@ -139,8 +130,9 @@ Resources:
       Parameters:
         ClusterAdmin: !Ref ClusterAdmin
         AdminPasswordSecretString: !Ref AdminPasswordSecretString
-        NetworkStackNameParameter: !Ref Networking
+        NetworkStackNameParameter: !GetAtt [ Networking, Outputs.StackName ]
       TemplateURL: !Sub 'https://slurm-cluster-configuration.s3.us-east-2.amazonaws.com/slurmdb.yaml'
+    DependsOn : Networking
 
   EfsStorage:
     Type: AWS::CloudFormation::Stack
@@ -177,16 +169,16 @@ Resources:
       Scheduler:
         Type: SLURM
         Version: !Ref SlurmVersion
-        Accounting:
-          DatabaseHost: !GetAtt [ SlurmDB, Outputs.DatabaseHost ]
-          DatabasePort: !GetAtt [ SlurmDB, Outputs.DatabasePort]
-          DatabaseAdminUser: !GetAtt [ SlurmDB, Outputs.DatabaseAdminUser ]
-          DatabaseSecretArn: !GetAtt [ SlurmDB, Outputs.DatabaseSecretArn ]
+      SlurmCustomSettings: 
+        - Uri: !GetAtt [ SlurmDB, Outputs.DatabaseUri ]
+        - UserName: !Ref ClusterAdmin
+        - PasswordSecretArn: !Ref AdminPasswordSecretString
       Networking:
         SubnetIds:
           - !GetAtt [ Networking, Outputs.DefaultPrivateSubnet ]
         SecurityGroupIds:
           - !GetAtt [ PCSSecurityGroup, Outputs.ClusterSecurityGroupId ]
+    DependsOn : SlurmDB
 
   # Compute Node groups
   PCSInstanceProfile:
